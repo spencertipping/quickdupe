@@ -1,0 +1,157 @@
+#!/usr/bin/env perl
+# Takes a collection of files and quickly determines which ones are duplicates
+# using a fast partial-checksum algorithm. Most file data is not scanned in
+# normal cases.
+
+use 5.014;
+use strict;
+use warnings;
+
+use constant BLOCK_SIZE      => 4096;
+use constant LOG_INTERVAL    => 50;
+use constant BLOCK_LOG_DELAY => 200;
+
+use Fcntl       qw/SEEK_SET :mode/;
+use Digest::SHA qw/sha256_base64/;
+use List::Util  qw/max sum/;
+use Time::HiRes qw/time/;
+
+$|++;
+
+our $last_update = 0;
+sub time_to_print {
+  my $now    = time;
+  my $result = $now - $last_update >= LOG_INTERVAL / 1000;
+  $last_update = $now if $result;
+  $result;
+}
+
+our $total_bytes_read  = 0;
+our $total_blocks_read = 0;
+our $seen_files        = 0;
+our $uniques_found     = 0;
+our $duplicates_found  = 0;
+our $partitions        = 0;
+
+our @files;
+our @inodes;
+our @sizes;
+
+{
+  my %seen_inodes;
+  while (<STDIN>) {
+    chomp;
+    my ($dev, $inode, $mode, $nlink,
+        $uid, $gid, $rdev, $size) = stat;
+
+    printf STDERR "%d files, %d unique/usable\033[K\r",
+                  $seen_files,
+                  scalar(@files),
+    if time_to_print;
+
+    ++$seen_files;
+    next unless defined $dev && defined $inode && -r $_;
+    my $inode_key = "$dev:$inode";
+    next if $seen_inodes{$inode_key}++ || !S_ISREG($mode);
+
+    push @files,  $_;
+    push @inodes, $inode_key;
+    push @sizes,  $size;
+  }
+}
+
+sub status_update {
+  my ($block_read, $block_size) = @_;
+  my $message = "%d duplicate, %d/%d groups left, %dk read";
+  my @printf_args = ($duplicates_found,
+                     $partitions,
+                     scalar(@files),
+                     $total_bytes_read / 1024);
+
+  if (defined $block_size) {
+    $message .= " (+%dk: %.2f%%)";
+    push @printf_args, $block_size / 1024, $block_read / $block_size * 100;
+  }
+
+  printf STDERR "$message\033[K\r", @printf_args if time_to_print;
+}
+
+sub sha_of_part {
+  my ($file, $offset, $length) = @_;
+
+  my $data;
+  open my $fh, '<', $file        or die "failed to open $file for reading: $!";
+  sysseek $fh, $offset, SEEK_SET or die "failed to seek $file to $offset: $!";
+
+  my $read_total = 0;
+  my $sha        = Digest::SHA->new(256);
+  my $start_time = time;
+  my $just_read;
+
+  while (($read_total += $just_read = sysread $fh, $data, BLOCK_SIZE) < $length
+         && $just_read) {
+    status_update $read_total, $length
+    if time - $start_time >= BLOCK_LOG_DELAY / 1000;
+
+    $sha->add($data);
+    ++$total_blocks_read;
+  }
+  close $fh;
+
+  $total_bytes_read += $read_total;
+  $sha->b64digest;
+}
+
+sub sig {
+  my ($index, $level) = @_;
+  return $sizes[$index] if $level < 0;
+
+  my $offset = $level ? BLOCK_SIZE << $level - 1 : 0;
+  my $length =          BLOCK_SIZE << $level - 1;
+  return 0 if $offset >= $sizes[$index];
+  return "$level:" . sha_of_part $files[$index], $offset, $length;
+}
+
+sub split_group {
+  my ($level, @xs) = @_;
+  my %unique;
+  my %ambiguous;
+
+  --$partitions;
+  my $any_further_refinement = 0;
+  for (@xs) {
+    status_update;
+
+    my $k = sig $_, $level;
+    $any_further_refinement |= !!$k;
+    if (exists $ambiguous{$k}) {
+      push @{$ambiguous{$k}}, $_;
+    } elsif (exists $unique{$k}) {
+      $ambiguous{$k} = [$unique{$k}, $_];
+      delete $unique{$k};
+      --$uniques_found;
+    } else {
+      $unique{$k} = $_;
+      ++$uniques_found;
+    }
+  }
+
+  if ($any_further_refinement) {
+    $partitions += keys %ambiguous;
+    map split_group($level + 1, @$_), values %ambiguous;
+  } else {
+    $duplicates_found += sum map scalar(@$_), values %ambiguous;
+    values %ambiguous;
+  }
+}
+
+if (@files) {
+  ++$partitions;
+  print join("\t", @files[@$_]), "\n" for split_group -1, 0 .. $#files;
+
+  printf STDERR "%d/%d non-linked duplicates; %dk read, speedup is %f\n",
+                $duplicates_found,
+                $seen_files,
+                $total_bytes_read / 1024,
+                $total_bytes_read && sum(@sizes) / $total_bytes_read;
+}
