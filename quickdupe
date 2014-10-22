@@ -31,10 +31,11 @@ our $total_blocks_read = 0;
 our $seen_files        = 0;
 our $uniques_found     = 0;
 our $duplicates_found  = 0;
+our $duplicated_size   = 0;
 our $partitions        = 0;
+our $files             = 0;
 
 our @files;
-our @inodes;
 our @sizes;
 
 {
@@ -50,27 +51,26 @@ our @sizes;
     if time_to_print;
 
     ++$seen_files;
-    next unless defined $dev && defined $inode && -r $_;
-    my $inode_key = "$dev:$inode";
-    next if $seen_inodes{$inode_key}++ || !S_ISREG($mode);
+    next unless defined $dev && defined $inode && -r $_ && S_ISREG($mode);
+    next if $seen_inodes{"$dev:$inode"}++;
 
-    push @files,  $_;
-    push @inodes, $inode_key;
-    push @sizes,  $size;
+    push @files, $_;
+    push @sizes, $size;
   }
 }
 
 sub status_update {
   my ($block_read, $block_size) = @_;
-  my $message = "%d duplicate, %d/%d groups left, %dk read";
-  my @printf_args = ($duplicates_found,
-                     $partitions,
-                     scalar(@files),
+  my $message = "%.1f%%: %d (%dk) duplicate, %d left, %dk read";
+  my @printf_args = (100 - 100 * $files / scalar(@files),
+                     $duplicates_found,
+                     $duplicated_size / 1024,
+                     $files,
                      $total_bytes_read / 1024);
 
   if (defined $block_size) {
-    $message .= " (+%dk: %.2f%%)";
-    push @printf_args, $block_size / 1024, $block_read / $block_size * 100;
+    $message .= " (+%.2f%%)";
+    push @printf_args, $block_read / $block_size * 100;
   }
 
   printf STDERR "$message\033[K\r", @printf_args if time_to_print;
@@ -109,9 +109,9 @@ sub sig {
   return $sizes[$index] if $level < 0;
 
   my $offset = $level ? BLOCK_SIZE << $level - 1 : 0;
-  my $length =          BLOCK_SIZE << max 0, $level - 1;
+  my $length = max BLOCK_SIZE, $offset;
   return 0 if $offset >= $sizes[$index];
-  return "$level:" . sha_of_part $files[$index], $offset, $length;
+  return sha_of_part $files[$index], $offset, $length;
 }
 
 sub split_group {
@@ -140,16 +140,20 @@ sub split_group {
 
   if ($any_further_refinement) {
     $partitions += keys %ambiguous;
-    map split_group($level + 1, @$_), values %ambiguous;
+    split_group($level + 1, @$_) for values %ambiguous;
   } else {
-    $duplicates_found += sum map scalar(@$_), values %ambiguous;
-    values %ambiguous;
+    $files -= @xs;
+    my @vs = values %ambiguous;
+    $duplicates_found += sum map scalar(@$_),           @vs;
+    $duplicated_size  += sum map $sizes[$$_[0]] * $#$_, @vs;
+    print join("\t", @files[@$_]), "\n" for @vs;
   }
 }
 
 if (@files) {
   ++$partitions;
-  print join("\t", @files[@$_]), "\n" for split_group -1, 0 .. $#files;
+  $files = @files;
+  split_group -1, 0 .. $#files;
 
   printf STDERR "%d/%d non-linked duplicates; %dk read, speedup is %f\n",
                 $duplicates_found,
