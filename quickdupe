@@ -86,16 +86,18 @@ sub sha_of_part {
   my $read_total = 0;
   my $sha        = Digest::SHA->new(256);
   my $start_time = time;
-  my $just_read;
+  my $just_read  = 0;
 
-  while (($read_total += $just_read = sysread $fh, $data, BLOCK_SIZE) < $length
-         && $just_read) {
-    status_update $read_total, $length
-    if time - $start_time >= BLOCK_LOG_DELAY / 1000;
-
-    $sha->add($data);
+  while ($read_total < $length
+         && ($just_read = sysread $fh, $data, BLOCK_SIZE)) {
     ++$total_blocks_read;
+    $read_total += $just_read;
+    $sha->add($data);
+    status_update $read_total, $length
+      if time - $start_time >= BLOCK_LOG_DELAY / 1000;
   }
+
+  die "failed to read from file $file: $!" unless defined $just_read;
   close $fh;
 
   $total_bytes_read += $read_total;
@@ -107,7 +109,7 @@ sub sig {
   return $sizes[$index] if $level < 0;
 
   my $offset = $level ? BLOCK_SIZE << $level - 1 : 0;
-  my $length =          BLOCK_SIZE << $level - 1;
+  my $length =          BLOCK_SIZE << max 0, $level - 1;
   return 0 if $offset >= $sizes[$index];
   return "$level:" . sha_of_part $files[$index], $offset, $length;
 }
