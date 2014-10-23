@@ -70,7 +70,7 @@ our @aliases;
 
 sub status_update {
   my ($block_read, $block_size) = @_;
-  my $message = "%.1f%%: %d (%dk) duplicate, %d left, %dk read";
+  my $message = "%.3f%%: %d (%dk) duplicate, %d left, %dk read";
   my @printf_args = (100 - 100 * $files / scalar(@files),
                      $duplicates_found,
                      $duplicated_size / 1024,
@@ -78,8 +78,8 @@ sub status_update {
                      $total_bytes_read / 1024);
 
   if (defined $block_size) {
-    $message .= " (+%.2f%%)";
-    push @printf_args, $block_read / $block_size * 100;
+    $message .= " (+%dk)";
+    push @printf_args, $block_read;
   }
 
   printf STDERR "$message\033[K\r", @printf_args if time_to_print;

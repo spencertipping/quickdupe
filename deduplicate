@@ -22,3 +22,5 @@ while (<>) {
                 $total_bytes_removed / 1024,
                 $total_files_removed;
 }
+
+print STDERR "\n";
