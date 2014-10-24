@@ -21,3 +21,17 @@ contents, all aliased filenames are mentioned in the list of duplicates; this
 way the deduplicator knows to relink all of the filenames to the same
 underlying data. (Otherwise you could still have duplicates, since you wouldn't
 be guaranteed to zero one of the inodes' reference counts.)
+
+## Caveats
+Neither quickdupe nor deduplicate look for any of the following
+possibly-problematic situations:
+
+1. Differences in file ownership or permissions.
+2. Differences in file suid status (very important; be sure not to deduplicate
+   /usr/bin/sudo for this reason).
+3. Files across different devices -- any such duplicates will be detected even
+   though there is no way to merge them.
+4. Files that contain tab or newline characters.
+
+As a result, you should be careful when using this system on your data; I
+recommend reading through the dupe-list TSV before running deduplicate.
