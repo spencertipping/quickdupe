@@ -1,6 +1,7 @@
 # quickdupe: fast duplicate file detector
 ```sh
 $ find some-path | ./quickdupe > dupe-list
+$ find some-path | ./quickdupe --signatures > signature-per-file
 $ ./deduplicate dupe-list
 ```
 
@@ -21,6 +22,20 @@ contents, all aliased filenames are mentioned in the list of duplicates; this
 way the deduplicator knows to relink all of the filenames to the same
 underlying data. (Otherwise you could still have duplicates, since you wouldn't
 be guaranteed to zero one of the inodes' reference counts.)
+
+## The `--signatures` option
+Written for @arrdem. The idea is that you want a short content-based name for
+each of a series of files, but you don't want to SHA them all. That
+content-based name is guaranteed to be unique with respect to the other files
+being deduplicated, though it's not stable; i.e. if you later rerun with a
+conflicting file, that signature will change.
+
+```sh
+$ ls | quickdupe --signatures 2>/dev/null
+5012	quickdupe
+1078	deduplicate
+2367	README.md
+```
 
 ## Caveats
 Neither quickdupe nor deduplicate look for any of the following

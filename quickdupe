@@ -18,6 +18,8 @@ use Time::HiRes qw/time/;
 
 $|++;
 
+our $signature_mode = $ARGV[0] eq '--signatures';
+
 our $last_update = 0;
 sub time_to_print {
   my $now    = time;
@@ -110,7 +112,7 @@ sub sha_of_part {
   close $fh;
 
   $total_bytes_read += $read_total;
-  $sha->b64digest;
+  "$offset+$length:" . $sha->b64digest;
 }
 
 sub sig {
@@ -152,6 +154,9 @@ sub split_group {
   }
 
   $files -= keys %unique;
+  if ($signature_mode) {
+    print join("\t", $_, with_aliases $unique{$_}), "\n" for keys %unique;
+  }
 
   if ($any_further_refinement) {
     $partitions += keys %ambiguous;
@@ -166,7 +171,12 @@ sub split_group {
     # duplicates of that. Emit aliases of all of these so we don't
     # inadvertently unlink an existing linked group of files when we
     # deduplicate.
-    print join("\t", with_aliases @$_), "\n" for @vs;
+    if ($signature_mode) {
+      print join("\t", $_, with_aliases @{$ambiguous{$_}}), "\n"
+        for keys %ambiguous;
+    } else {
+      print join("\t", with_aliases @$_), "\n" for @vs;
+    }
   }
 }
 
