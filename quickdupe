@@ -18,7 +18,7 @@ use Time::HiRes qw/time/;
 
 $|++;
 
-our $signature_mode = $ARGV[0] eq '--signatures';
+our $signature_mode = @ARGV && $ARGV[0] eq '--signatures';
 
 our $last_update = 0;
 sub time_to_print {
