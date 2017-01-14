@@ -1,7 +1,7 @@
 # quickdupe: fast duplicate file detector
 ```sh
-$ find some-path | ./quickdupe > dupe-list
-$ find some-path | ./quickdupe --signatures > signature-per-file
+$ find some-path -xdev | ./quickdupe > dupe-list
+$ find some-path -xdev | ./quickdupe --signatures > signature-per-file
 $ ./deduplicate dupe-list
 ```
 
@@ -22,6 +22,11 @@ contents, all aliased filenames are mentioned in the list of duplicates; this
 way the deduplicator knows to relink all of the filenames to the same
 underlying data. (Otherwise you could still have duplicates, since you wouldn't
 be guaranteed to zero one of the inodes' reference counts.)
+
+Deduplication works by hardlinking all of the files in a duplicate group,
+except that it limits itself to at most 1024 filenames linked to the same
+inode. This prevents "too many hardlinks" errors that might otherwise lead to
+data loss.
 
 ## The `--signatures` option
 Written for @arrdem. The idea is that you want a short content-based name for
@@ -46,7 +51,8 @@ possibly-problematic situations:
    /usr/bin/sudo for this reason).
 3. Files across different devices -- any such duplicates will be detected even
    though there is no way to merge them.
-4. Files that contain tab or newline characters.
+4. Files whose names contain tab or newline characters, though if you have
+   these lying around you're kind of asking for trouble.
 
 As a result, you should be careful when using this system on your data; I
 recommend reading through the dupe-list TSV before running deduplicate.
