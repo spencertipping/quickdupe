@@ -81,7 +81,7 @@ sub status_update {
 
   if (defined $block_size) {
     $message .= " (+%dk)";
-    push @printf_args, $block_read;
+    push @printf_args, $block_read / 1024;
   }
 
   printf STDERR "$message\033[K\r", @printf_args if time_to_print;
