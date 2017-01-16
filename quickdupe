@@ -55,7 +55,7 @@ our @aliases;
     if time_to_print;
 
     ++$seen_files;
-    next unless defined $dev && defined $inode && -r $_ && S_ISREG($mode);
+    next unless defined $dev && defined $inode && -r && !-l && S_ISREG($mode);
 
     my $k = "$dev:$inode";
     if ($seen_inodes{$k}) {
