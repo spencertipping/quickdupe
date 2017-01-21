@@ -7,6 +7,8 @@ our $total_files_removed = 0;
 our $total_bytes_removed = 0;
 our $groups              = 0;
 
+our $suffix = '.' . join '', map chr(65 + rand 26), 1..16;
+
 while (<>) {
   chomp;
   my @xs = split /\t/;
@@ -20,11 +22,16 @@ while (<>) {
     ++$groups;
 
     for (@duplicates) {
-      if (unlink and link $original, $_) {
+      # Safely relink the file by first creating a temporary link. This will
+      # catch failures like cross-device hardlinks before we've unlinked the
+      # source, generally avoiding data loss.
+      my $temp = "$_$suffix";
+      if (link $original, $temp and rename $temp, $_) {
         $total_bytes_removed += $size;
         ++$total_files_removed;
       } else {
-        warn "failed to unlink/relink $original to $_: $!";
+        warn "failed to unlink/relink $original to $_ via $temp: $!";
+        unlink $temp;
       }
     }
 
